@@ -1,0 +1,9 @@
+{
+    "host": "启动地址，下面是端口，留空则127.0.0.1",
+    "port": 3001,
+    "upyunDomain": "加速域名",
+    "serviceName": "对象存储服务名",
+    "operator": "操作员",
+    "password": "操作员密码",
+    "remotePath": ""
+}
