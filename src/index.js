@@ -1,3 +1,10 @@
+/**
+ * Author: Twiyin0(https://github.com/Twiyin0)
+ * Version: v0.1.0
+ * Generate Time: 2025-03-21
+ * License: MIT
+ */
+
 import upyun from 'upyun';
 import { Writable } from 'stream';
 import express from 'express';
@@ -78,13 +85,40 @@ class UpyunService {
     }
 }
 
+if (config.https) {
+    // 添加信任代理设置
+    app.set('trust proxy', true);
+
+    // 添加中间件来处理 X-Forwarded-Proto 头
+    app.use((req, res, next) => {
+        if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+            // 请求是通过 HTTPS 发起的
+            next();
+        } else {
+            // 重定向到 HTTPS
+            res.redirect(`https://${req.headers.host}${req.url}`);
+        }
+    });
+}
+
 const upyunDomain = config.upyunDomain;
 const upyunService = new UpyunService(config.serviceName, config.operator, config.password);
 
+/**
+ * 获取随机文件的 URL
+ * @param {string} path - 文件路径
+ * @param {Array} files - 文件列表
+ * @returns {Object} - 包含图片 URL 的对象
+ */
 function getRandomFileUrl(path, files) {
     return { "imgUrl": `${upyunDomain}${path}/${files[Math.floor((Math.random() * files.length * 2333) % files.length)].name}` };
 }
 
+/**
+ * 下载图片并返回其 Buffer 数据
+ * @param {string} url - 图片 URL
+ * @returns {Promise<Buffer>} - 图片的 Buffer 数据
+ */
 async function downloadImage(url) {
     try {
         // 发送 GET 请求获取图片数据，指定 responseType 为 arraybuffer
@@ -106,15 +140,21 @@ async function downloadImage(url) {
     }
 }
 
-app.get('/acc', async (req, res) => {
+/**
+ * 处理图片请求的通用逻辑
+ * @param {string} remotePath - Upyun 存储路径
+ * @param {Object} req - 请求对象
+ * @param {Object} res - 响应对象
+ */
+async function handleImageRequest(remotePath, req, res) {
     const type = req.query.type;
-    const remotePath = '/img/acc'
+    const webp = req.query.type;
     try {
         const fileList = await upyunService.getFileList(remotePath);
         if (fileList.length === 0) {
             return res.status(404).send('这个文件夹内没有文件');
         }
-        const filePath = remotePath+ '/' + fileList[Math.floor((Math.random() * fileList.length * 2333) % fileList.length)].name;
+        const filePath = remotePath.endsWith('/')? remotePath.slice(0, -1):remotePath + '/' + fileList[Math.floor((Math.random() * fileList.length * 2333) % fileList.length)].name;
 
         if (type === 'base64') {
             // 返回 Base64 编码的图片
@@ -123,10 +163,10 @@ app.get('/acc', async (req, res) => {
         } else if (type === 'json') {
             // 返回 JSON 格式的图片 URL
             const imgUrl = getRandomFileUrl(remotePath, fileList);
-            res.json(imgUrl)
-        } else {
+            res.json(imgUrl);
+        } else if (type === 'org') {
             // 返回图片的原始数据
-            const imageData = await downloadImage((getRandomFileUrl(remotePath, fileList).imgUrl)+(type==='webp'? '!/format/webp':''));
+            const imageData = await downloadImage((getRandomFileUrl(remotePath, fileList).imgUrl) + (webp === true ? '!/format/webp' : ''));
 
             // 根据文件扩展名设置 Content-Type
             const fileExtension = filePath.split('.').pop().toLowerCase();
@@ -140,55 +180,25 @@ app.get('/acc', async (req, res) => {
 
             res.set('Content-Type', mimeType); // 设置正确的 Content-Type
             res.send(imageData); // 发送二进制数据
-        }
-    } catch (error) {
-        console.error('Error:', error);
-        res.status(500).send('Internal Server Error');
-    }
-});
-
-app.get('/ver', async (req, res) => {
-    const type = req.query.type;
-    const remotePath = '/img/ver'
-    try {
-        const fileList = await upyunService.getFileList(remotePath);
-        if (fileList.length === 0) {
-            return res.status(404).send('这个文件夹内没有文件');
-        }
-        const filePath = remotePath+ '/' + fileList[Math.floor((Math.random() * fileList.length * 2333) % fileList.length)].name;
-
-        if (type === 'base64') {
-            // 返回 Base64 编码的图片
-            const base64String = await upyunService.getFileBase64(filePath);
-            res.json({ "data": "data:image/png;base64," + base64String });
-        } else if (type === 'json') {
-            // 返回 JSON 格式的图片 URL
-            const imgUrl = getRandomFileUrl(remotePath, fileList)
-            res.json(imgUrl)
         } else {
-            // 返回图片的原始数据
-            const imageData = await downloadImage((getRandomFileUrl(remotePath, fileList).imgUrl)+(type==='webp'? '!/format/webp':''));
-
-            // 根据文件扩展名设置 Content-Type
-            const fileExtension = filePath.split('.').pop().toLowerCase();
-            const mimeType = {
-                png: 'image/png',
-                jpg: 'image/jpeg',
-                jpeg: 'image/jpeg',
-                gif: 'image/gif',
-                webp: 'image/webp',
-            }[fileExtension] || 'application/octet-stream';
-
-            res.set('Content-Type', mimeType); // 设置正确的 Content-Type
-            res.send(imageData); // 发送二进制数据
+            res.redirect(getRandomFileUrl(remotePath, fileList).imgUrl + (type === 'webp' ? '!/format/webp' : ''));
         }
     } catch (error) {
         console.error('Error:', error);
         res.status(500).send('Internal Server Error');
     }
+}
+
+// 动态路由处理
+app.get('/:path', async (req, res) => {
+    const path = req.params.path; // 获取动态路径
+    config.remotePath = config.remotePath.startsWith('/')? config.remotePath:('/'+config.remotePath);
+    const basePath = config.remotePath.endsWith('/')? config.remotePath.slice(0, -1):config.remotePath;
+    const remotePath = `${basePath}/${path}`; // 映射到 Upyun 存储路径
+    await handleImageRequest(remotePath, req, res);
 });
 
 // 启动服务器
-app.listen(port, config.host? config.host:'127.0.0.1', () => {
-    console.log(`服务启动在 http://${config.host? config.host:'127.0.0.1'}:${port}`);
+app.listen(port, config.host ? config.host : '127.0.0.1', () => {
+    console.log(`服务启动在 ${config.https? 'https':'http'}://${config.host ? config.host : '127.0.0.1'}:${port}`);
 });

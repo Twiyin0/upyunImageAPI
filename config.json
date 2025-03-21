@@ -5,5 +5,6 @@
     "serviceName": "对象存储服务名",
     "operator": "操作员",
     "password": "操作员密码",
-    "remotePath": ""
+    "remotePath": "Upyun存储访问根路径",
+    "https": false
 }
